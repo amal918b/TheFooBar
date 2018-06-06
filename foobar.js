@@ -1,3 +1,4 @@
+// v0.01
 const FooBar = (function() {
 
 "use strict";
@@ -254,7 +255,7 @@ class Bar {
     }
 
     // Returns JSON-data about everything in the bar
-    getData() {
+    getData( short=false ) {
         const data = {};
 
         data.timestamp = Date.now();
@@ -314,17 +315,23 @@ class Bar {
             // capacity
             t.capacity = tap.keg.capacity;
             // (beertype): name
+
             t.beer = {
                 name: tap.keg.beerType.name,
-                // description
-            //    description: tap.keg.beerType.description,
-                // category    
-                category: tap.keg.beerType.category,
-                // label
-            //    label: tap.keg.beerType.label,
                 // alcohol
                 alcohol: tap.keg.beerType.alc
             }
+
+            if( !short ) {
+                // description
+                t.beer.description = tap.keg.beerType.description;
+                // category    
+                t.beer.category = tap.keg.beerType.category;
+                // label
+                t.beer.label = tap.keg.beerType.label;
+            }
+
+            
             
             return t;
         })
