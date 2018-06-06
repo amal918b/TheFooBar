@@ -1,18 +1,10 @@
 "use strict";
 
-// TODO: måske add stock-price
-
 class Bar {
     constructor(name) {
-        // TODO: Closing-time (hardcoded 22:00:00)
-
-        this.beerTypes = [];
-        this.beerTypeList = []; // The same content as beerTypes, but arranged as a numbered array
-
         this.taps = [];
-
         this.bartenders = [];
-        this.queue = [];
+        this.queue = []; // customers
 
         // create storage
         this.storage = new Storage(this, true);
@@ -21,17 +13,11 @@ class Bar {
         this.nextCustomerID = 0;
 
         // start ticker
-      //  setInterval(this.tick.bind(this), 1000);
-    }
-
-    addBeerType(name, size) {
-        const type = new BeerType(name, size);
-        this.beerTypes[name] = type;
-        this.beerTypeList.push(type);
+        setInterval(this.tick.bind(this), 1000);
     }
 
     addBartender(name) {
-        // create a bartender
+        // create a bartender object
         const bartender = new Bartender(this, name);
         this.bartenders.push(bartender);
     }
@@ -97,9 +83,14 @@ class Bar {
         }
     }
 
+    getRandomAvailableBeerType() {
+        const tap = this.taps[Math.floor(Math.random()*this.taps.length)];
+        return tap.keg.beerType;
+    }
+
     waitForAvailableTap( beerType, callback ) {
         // find taps for this kind of beer
-        const taps = this.taps.filter( tap => tap.keg.typeOfBeer.name == beerType );
+        const taps = this.taps.filter( tap => tap.keg.beerType.name == beerType );
 
         // if one is available now, use that directly
         let tap = null;
@@ -144,7 +135,7 @@ class Bar {
             ncust.id = cust.id;
             ncust.startTime = cust.queueStart;
 
-            ncust.order = cust.order.beers.map( beer => beer.typeOfBeer.name );
+            ncust.order = cust.order.beers.map( beer => beer.beerType.name );
 
             return ncust;
         });
@@ -175,15 +166,15 @@ class Bar {
             t.capacity = tap.keg.capacity;
             // (beertype): name
             t.beer = {
-                name: tap.keg.typeOfBeer.name,
+                name: tap.keg.beerType.name,
                 // description
-                description: tap.keg.typeOfBeer.description,
+            //    description: tap.keg.beerType.description,
                 // category    
-                category: tap.keg.typeOfBeer.category,
+                category: tap.keg.beerType.category,
                 // label
-                label: tap.keg.typeOfBeer.label,
+            //    label: tap.keg.beerType.label,
                 // alcohol
-                alcohol: tap.keg.typeOfBeer.alcohol
+                alcohol: tap.keg.beerType.alc
             }
             
             return t;
@@ -219,7 +210,8 @@ class Bartender {
             READY: Symbol("State.READY"),
             SERVING: Symbol("State.SERVING"),
             PREPARING: Symbol("State.PREPARING"), // When the bartender changes a keg between customers ... 
-            BREAK: Symbol("State.BREAK")
+            BREAK: Symbol("State.BREAK"),
+            OFF: Symbol("State.BREAK")
         }
 
         this.currentState = this.state.READY;
@@ -231,18 +223,40 @@ class Bartender {
     }
 
     work( parameter ) {
-        console.log("Working for this %o with %o", this, parameter);
+        
         if(this.tasks.length > 0) {
             this.isWorking = true;
 
             const task = this.tasks.shift();
+            console.log("Bartender " + this.name + " starts task " + task.name + ", with parameter", parameter);
             task.perform( parameter );
         } else {
             this.isWorking = false;
-            console.log("No work to be done for " + this.name + " - playing a bit of fussball ...");
+            console.log("Bartender " + this.name + " has no more work");// ... will go for a break in 5 minutes");
+            if( this.bar.queue.length === 0 ) {
+                console.log("will go for a break in 5 minutes");   
+                // TODO: start break in 5 minutes, if no work shows up
+                this.requestBreak(5);
+            }
+            
         }
     }
 
+    requestBreak( inMinutes ) {
+        setTimeout( function() {
+            // request the break here!
+            console.log("Request break for", this);
+
+            // TODO: In some way the bar should know about requests for breaks, and if no customers are waiting
+            // the next tick, then approve the break to the requester that has waited the longest since last
+            // break ...
+            // This means storing the time since last break in each bartender.
+            // A bartender can only get a break if two other bartenders are behind the bar. No-one can be called back
+            // from a break once it has begun.
+
+
+        }.bind(this), inMinutes*1000);
+    }
 
 
     // convenience functions for adding tasks
@@ -274,7 +288,7 @@ class Task {
 
     perform() {
         // do this task ... 
-        console.log("Starting task: %s - will take %d seconds", this.name, this.time)
+        console.log("-task: "+this.name+" will take %d seconds", this.time)
 
         // and callback on the owner to do the next task, when done
         setTimeout( this.owner.work.bind(this.owner), this.time*1000 );
@@ -287,11 +301,18 @@ class StartServing extends Task {
         this.customer = customer;
         this.time = 2; // Taking the order takes 10 seconds
 
+        // TODO: customer.state should be modified in stead of this
         customer.beingServed = true;
     }
 
     perform() { 
         super.perform();
+
+        // log list of beers in this customer's order
+        this.customer.order.beers.forEach( beer => {
+            console.log("--" + beer);
+        })
+
         this.owner.currentState = this.owner.state.SERVING;
     }
 }
@@ -310,10 +331,10 @@ class ServeBeer extends Task {
 
 class PourBeer extends Task {
     constructor(beer) {
-        super("serveBeer");
+        super("pourBeer");
         this.beer = beer;
 
-        this.time = beer.size / beer.typeOfBeer.pouringSpeed;
+        this.time = beer.size / beer.beerType.pouringSpeed;
     }
 
     perform( tap ) {
@@ -364,9 +385,9 @@ class Order {
 
         // keep order sorted by beertype!
         this.beers.sort( (a,b) => {
-            if( a.typeOfBeer.name < b.typeOfBeer.name ) {
+            if( a.beerType.name < b.beerType.name ) {
                 return -1;
-            } else if( a.typeOfBeer.name > b.typeOfBeer.name ) {
+            } else if( a.beerType.name > b.beerType.name ) {
                 return 1;
             } else {
                 return 0;
@@ -377,22 +398,66 @@ class Order {
 
 // A beer is a glass of beer of a certain type+size. Default 50cl.
 class Beer {
-    constructor( typeOfBeer, size = 50) {
-        this.typeOfBeer = typeOfBeer;
+    constructor( beerType, size = 50) {
+        this.beerType = beerType;
         this.size = size;
     }
 
     toString() {
-        return this.typeOfBeer.toString();
+        return this.beerType.toString();
     }
+}
+
+const BeerTypes = {
+    add(beerType) {
+        if(!this._data) {
+            this._data = [];
+        }
+        this._data.push(beerType);
+    },
+
+    get(beerTypeName) {
+        return this._data.find( beerType => beerType.name === beerTypeName );
+    },
+
+    all() {
+        return this._data;
+    },
+
+    random() {
+        return this._data[Math.floor(Math.random()*this._data.length)];
+    }
+
 }
 
 // A beertype has a name and a pouringSpeed (some beers might be slower!)
 class BeerType {
     // TODO: Add probability/popularity of this beer
-    constructor( name, pouringSpeed = 5 ) {
-        this.name = name;
-        this.pouringSpeed = pouringSpeed; // cl pr second
+    constructor( info ) {
+        /* Info object is expected to have:
+            -name
+            -category
+            -pouringSpeed in cl pr second
+            -popularity from 0 to 1
+            -alc
+            -label
+            -description:
+                - appearance
+                - aroma
+                - flavor
+                - mouthfeel
+                - overallImpression
+        */
+
+        this.name = info.name;
+        this.category = info.category;
+        this.pouringSpeed = info.pouringSpeed || 5;
+        this.popularity = info.popularity || 1;
+        this.alc = info.alc;
+        this.label = info.label;
+        this.description = info.description || "no description";
+
+        BeerTypes.add(this);
     }
 
     toString() {
@@ -444,8 +509,8 @@ class Tap {
    - level: the current level of the contents in the keg in cl
 */
 class Keg {
-    constructor( typeOfBeer, capacity ) {
-        this.typeOfBeer = typeOfBeer;
+    constructor( beerType, capacity ) {
+        this.beerType = beerType;
         this.capacity = capacity;
         this.level = this.capacity; // initial the keg is full
     }
@@ -453,18 +518,23 @@ class Keg {
     drain( amount ) {
         this.level -= amount;
         // TODO: Handle empty keg
+        if( this.level <= 0 ) {
+            console.error("!!!KEG EMPTY!!!", this);
+        }
     }
 }
 
-// There can be only one storage-object in the system - it contains a number of kegs
+// There can be only one storage-object in the system - it contains a number of kegs with various beertypes in them
 class Storage {
     constructor( bar, autofill = true ) {
         this.bar = bar;
         this.autofill = autofill;
-        this.storage = {}; 
+        this.storage = new Map(); // key: beerType, value: number of kegs in storage of that type
     }
 
     add( keg ) {
+        console.error("UNUSED METHOD! Storage.add");
+        /*
         // find type - add to count
         const typeOfBeer = keg.typeOfBeer.name;
         let list = this.storage[typeOfBeer];
@@ -473,25 +543,40 @@ class Storage {
             this.storage[typeOfBeer] = list;
         }
         list.push(keg);
+        */
     }
 
-    addKegs( typeOfBeer, numberOfKegs ) {
-        const type = this.bar.beerTypes[typeOfBeer];
-        for( let i=0; i < numberOfKegs; i++ ) {
-            const keg = new Keg(type, 2500);
-            
-            this.add( keg );
-        }
+    addKegs( beerType, numberOfKegs ) {
+        // find this beerType in the map - default to 0
+        let count = this.storage.get(beerType) || 0;
+        // increment with more kegs
+        count+= numberOfKegs;
+        // store the new number
+        this.storage.set(beerType, count);
     }
 
-    getKeg( typeOfBeer ) {
-        const keg = this.storage[typeOfBeer].shift();
+    getKeg( beerType ) {
+        let keg = null;
 
-        if( this.autofill && this.storage[typeOfBeer].length == 0) {
-            this.addKegs(typeOfBeer, 10); // autofill to 10 if empty
+        // find the count for this type 
+        let count = this.storage.get(beerType) || (this.autofill ? 10 : 0);
+
+        if( count > 1 ) {
+            // create new keg
+            keg = new Keg(beerType, 2500);
+            count--;
+            this.storage.set(beerType, count);
         }
-        
+
         return keg;
+    }
+
+    // returns a random keg (of a type that there more than 0 of!)
+    getRandomKeg() {
+        // find random type, by creating a list of all types with count > 0
+        const beerTypes = Array.from(this.storage).filter(pair => pair[1] > 0).map( pair => pair[0]);
+        console.log("Available beertypes: ", beerTypes);
+        return this.getKeg( beerTypes[Math.floor(Math.random()*beerTypes.length)]);
     }
 
 }
