@@ -1,4 +1,4 @@
-// v0.01
+// v0.02
 const FooBar = (function() {
 
 "use strict";
@@ -783,6 +783,8 @@ function createBar(name) {
   //  bar.addBartender("Wes");
   //  bar.addBartender("Sarah");
 
+    console.log("Created Bar '"+bar.name+"' - ready for customers ...");
+
     // return the bar
     return bar;
 }
@@ -811,17 +813,35 @@ function createRandomBeer() {
 // Customer-generator
 function CustomerGenerator() {
     
-    function generateCustomers() {
+    function generateCustomers(min=0, max=4) {
+
         // generate between 0 and 4 customers
-        for( let number = Math.floor(Math.random()*5); number > 0; number-- ) {
+        for( let number = Math.floor(Math.random()*(max-min))+min; number > 0; number-- ) {
         //    console.log("Generate customer");
-            bar.addCustomer( createCustomer() );
+            // Never more than 25 customers in queue!
+            if( bar.queue.length < 25 ) {
+                bar.addCustomer( createCustomer() );
+                //console.log("add customer");
+            }
         }
 
-        setTimeout( generateCustomers, 60000 );
+        // By default wait 60 seconds before adding to the queue
+        // If there are less than 10 people in the queue, wait only 30 seconds
+        let nextCustomerIn = 60;
+        if( bar.queue.length < 10 ) {
+            nextCustomerIn = 30;
+        }
+        // If the queue is empty, wait only 10 seconds
+        if( bar.queue.length === 0 ) {
+            nextCustomerIn = 10;
+        }
+
+        setTimeout( generateCustomers, nextCustomerIn*1000 );
     }
 
-    generateCustomers();
+    // First time it is called, generate a queue between 5 and 15 people
+    generateCustomers(5,15);
+    console.log("Initialised CustomerGenerator with " + bar.queue.length + " customers");
 }
 
 
@@ -831,4 +851,3 @@ CustomerGenerator();
 return bar;
 
 })();
-
