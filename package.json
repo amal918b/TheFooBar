@@ -1,0 +1,23 @@
+{
+  "name": "the_foobar",
+  "version": "1.0.0",
+  "description": "A simulation of a bar - for use in frontend design exam",
+  "main": "foobar.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "rollup src/foobar.js --format iife --name \"FooBar\" --file dist/foobar.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/petlatkea/TheFooBar.git"
+  },
+  "author": "Peter Lind",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/petlatkea/TheFooBar/issues"
+  },
+  "homepage": "https://github.com/petlatkea/TheFooBar#readme",
+  "devDependencies": {
+    "rollup": "^0.60.1"
+  }
+}
