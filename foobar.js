@@ -1,4 +1,4 @@
-// v0.02
+// v0.03
 const FooBar = (function() {
 
 "use strict";
@@ -316,25 +316,36 @@ class Bar {
             t.capacity = tap.keg.capacity;
             // (beertype): name
 
-            t.beer = {
-                name: tap.keg.beerType.name,
-                // alcohol
-                alcohol: tap.keg.beerType.alc
-            }
-
-            if( !short ) {
-                // description
-                t.beer.description = tap.keg.beerType.description;
-                // category    
-                t.beer.category = tap.keg.beerType.category;
-                // label
-                t.beer.label = tap.keg.beerType.label;
-            }
-
-            
+            t.beer = tap.keg.beerType.name;
             
             return t;
-        })
+        });
+
+        // storage
+        data.storage = Array.from(this.storage.storage).map( pair => {
+            return {
+                name: pair[0].name,
+                amount: pair[1]
+            }
+        });
+
+
+        // beerinfo
+        if( !short ) {
+            data.beertypes = BeerTypes.all().map( info => {
+                return {
+                name: info.name,
+                category: info.category,
+                pouringSpeed: info.pouringSpeed,
+                popularity: info.popularity,
+                alc: info.alc,
+                label: info.label,
+                description: info.description
+                }
+            }
+
+            );
+        }
 
 
         // return JSON-ified data
@@ -703,6 +714,8 @@ class Storage {
         // store the new number
         this.storage.set(beerType, count);
     }
+
+    
 
     getKeg( beerType ) {
         let keg = null;
