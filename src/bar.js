@@ -34,6 +34,7 @@ class Bar {
 
     addTap( tap ) {
         tap.id = this.taps.length;
+        tap.bar = this;
         this.taps.push(tap);
     }
 
@@ -46,30 +47,18 @@ class Bar {
     }
 
     serveNextCustomer( bartender ) {
+        // move customer out of queue
         const customer = this.queue.shift();
-
+        // - to beingServed-list
         this.beingServed.push(customer);
         
-        bartender.startServing( customer );
+        // and start serving the customer
+        bartender.serveCustomer(customer);
 
-        // run through the order of this customer
-
-        // add pouring of each beed to the tasks of the bartender
-
-        // finally add payment-job - when that is done, bartender releases the customer, and serve the next one
-        const order = customer.order;
-        for( let beer of order.beers ) {
-//            console.log("order contains: ", beer);
-            // serve this beer
-            bartender.serveBeer( beer ); // doesn't serve it right away, but adds it to a job-list
-        }
-        bartender.receivePayment( customer );
-        bartender.endServing( customer );
-
+        // then get to work
         if(!bartender.isWorking) {
             bartender.work();
         }
-
     }
 
     // The ticker runs every N seconds, looks for waiting customers and available bartenders, and
@@ -88,7 +77,7 @@ class Bar {
 
     // returns a random available bartender, if any - else null
     getAvailableBartender() {
-        const bartenders = this.bartenders.filter( bartender => bartender.currentState === bartender.state.READY );
+        const bartenders = this.bartenders.filter( bartender => !bartender.isWorking );
 
         if( bartenders.length > 0 ) {
             return bartenders[Math.floor(Math.random()*bartenders.length)];
@@ -122,7 +111,6 @@ class Bar {
             taps.sort( (a,b) => a.waitList.length - b.waitList.length );
 
             Logger.log("No tap available for "+beerType+" - waiting for tap " + taps[0].id);
-            // console.log("No tap available for "+beerType.toString()+" beer - waiting for one of: %o", taps);
 
             taps[0].addToWaitList( callback );
         } 
@@ -172,8 +160,11 @@ class Bar {
             switch(bt.currentState) {
                 case bt.state.READY: bart.status = "READY";
                     break;
-                case bt.state.SERVING:
-                case bt.state.PREPARING: bart.status = "WORKING";
+                case bt.state.SERVING: bart.status = "SERVING_CUSTOMER";
+                    break;
+                case bt.state.WAITING: bart.status = "WAITING_FOR_TAP";
+                    break;
+                case bt.state.PREPARING: bart.status = "EXCHANGING_KEG";
                     break;
                 case bt.state.BREAK: bart.status = "BREAK";
                     break;

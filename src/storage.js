@@ -1,4 +1,5 @@
 import {Keg} from './keg.js';
+import {Logger} from './logger.js';
 
 // There can be only one storage-object in the system - it contains a number of kegs with various beertypes in them
 class Storage {
@@ -22,15 +23,22 @@ class Storage {
     getKeg( beerType ) {
         let keg = null;
 
+        Logger.log("Get keg with '"+beerType+"' from storage");
+
         // find the count for this type 
         let count = this.storage.get(beerType) || (this.autofill ? 10 : 0);
 
-        if( count > 1 ) {
+        if( count > 0 ) {
             // create new keg
             keg = new Keg(beerType, 2500);
             count--;
+            if( count === 0 && this.autofill ) {
+                count = 10;
+            } 
             this.storage.set(beerType, count);
         }
+
+
 
         return keg;
     }
