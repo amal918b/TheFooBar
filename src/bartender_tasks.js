@@ -9,22 +9,12 @@ class Task {
 
     // called by work, calls work again after 
     enter( parameter ) {
-//        console.log("enter task %o with parameter %o", this, parameter);
         setTimeout( this.owner.work.bind(this.owner), this.time*1000 );
     }
 
     exit() {
 //        console.log("exit task ", this);
     }
-/*
-    perform() {
-        // do this task ... 
-       // console.log("-task: "+this.name+" will take %d seconds", this.time)
-
-        // and callback on the owner to do the next task, when done
-        setTimeout( this.owner.work.bind(this.owner), this.time*1000 );
-    }
-*/    
 
     toString() {
         return this.name;
@@ -53,6 +43,7 @@ class StartServing extends Task {
     }
 
     enter() {
+        this.owner.currentCustomer = this.customer;
         // TODO: customer.state should be modified instead of this
         this.customer.beingServed = true;
         // TODO: log the current time in the customer
@@ -69,9 +60,7 @@ class StartServing extends Task {
         Logger.log("Bartender "+this.owner.name+"' plan for serving customer "+this.customer.id+" is: ["+tasklist+"]");
 
         super.exit();
-    }
-
-    
+    }    
 }
 
 class ReserveTap extends Task {
@@ -83,8 +72,29 @@ class ReserveTap extends Task {
     enter() {
         Logger.log("Bartender "+this.owner.name+" wants to pour '" + this.beer + "'");
         // Find available tap - then pourbeer (that is expected to be next task in queue)
-        this.owner.bar.waitForAvailableTap( this.beer, this.owner.work.bind(this.owner) );
+        if( ! this.owner.bar.waitForAvailableTap( this.beer, this.owner.work.bind(this.owner) ) ) {
+            // If no tap can be reserved or found - modify the customers order to something else    
+            console.warn("! can't fulfill customer #" + this.owner.currentCustomer.id +" order - replacing beertype !");
+
+            const previousType = this.beer.beerType;
+
+            // get another beer-type
+            this.beer.beerType = this.owner.bar.taps.filter( tap => tap.isAvailable )[0].keg.beerType;
+
+            // find following pourbeer-tasks
+            let t=0;
+            while( this.owner.tasks[t].name == "pourBeer" ) {
+                this.owner.tasks[t].beer.beerType = this.beer.beerType;
+                t++;
+            }
+
+            Logger.log("'" + previousType + "' is sold out, so replacing with: '"+this.beer.beerType+"'");
+            this.owner.bar.waitForAvailableTap( this.beer, this.owner.work.bind(this.owner) ); 
+        }
         
+        
+
+
         // don't call super - the tap handles the callback
     }
 
@@ -109,6 +119,8 @@ class ReleaseTap extends Task {
 
     enter() {
         this.tap = this.owner.currentTap;
+
+        // FIX: Don't release a tap, if you have just emptied the keg!
         this.owner.releaseTap();
 
         super.enter();
@@ -139,61 +151,31 @@ class PourBeer extends Task {
 
     exit() {
         Logger.log("Bartender "+this.owner.name+" is done pouring '" + this.beer + "' from tap " + this.tap.id);
-        super.exit();
-    }
 
-}
+        // Keg could be empty now - better check
+        if( this.tap.keg.level <= 0 ) {
+            Logger.log("Keg is empty.");
 
-// TODO: Make entry and exit methods for tasks, rather than two tasks
-class DonePouringBeer extends Task {
-    constructor(beer) {
-        super("donePouringBeer");
-        this.beer = beer;
-        this.time = 0;
-    }
+            const replaceTask = new ReplaceKeg(this.tap);
 
-    perform( ) {
-        // free this tap
-        const tap = this.owner.tap;
-        Logger.log("Bartender "+this.owner.name+" is done pouring '" + this.beer + "' from tap " + tap.id);
-
-        this.owner.tap = null;
-        const result = tap.endUsing();
-
-        if( result !== "KEEP" ) {
-            Logger.log("Bartender "+this.owner.name+" should replace keg for tap " + tap.id);
-
-            // Create tasks for replacing keg
-            const replaceTask = new ReplaceKeg(tap,result);
-            const replaceTaskDone = new DoneReplacingKeg(tap);
-
-            // if this customer wants more of this beertype (and there are no other taps for this type)
-            // - then exchange the keg immediately
-
-            // look through the tasks for this bartender - if anyone is pourBeer with the same beertype as the current keg
-            if( result === "REPLACE" ||
-                this.owner.tasks.filter( task => task.name === "pourBeer" && task.beer.beerType == tap.keg.beerType).length > 0 ) {
-                Logger.log("Replace keg immediately");
-
-                this.owner.insertTask(replaceTaskDone);
+            // if my customer requires more beer of this kind - replace the keg now!
+            if( this.owner.tasks.filter( task => task.name === "pourBeer" && task.beer.beerType === this.tap.keg.beerType).length > 0 ) {
+                Logger.log("My customer wants more - so better replace it now!");
                 this.owner.insertTask(replaceTask);
-
             } else {
-                Logger.log("Replace keg after serving this customer");
-                this.owner.addTask(replaceTask);
-                this.owner.addTask(replaceTaskDone);
-            }
+            // otherwise, replace the keg when done serving
+                Logger.log("I'll replace it when done with this customer");
 
-            // if it is, but this customer doesn't need any more:
-            // - exchange the keg after serving this customer
-            // if it isn't, don't care!!
+                // Move the releaseTap task to after replacing the keg!
+
+                this.owner.addTask(replaceTask);
+            }
         }
 
-        
-        
-        super.perform();
+        super.exit();
     }
 }
+
 
 class ReceivePayment extends Task {
     constructor(order) {
@@ -221,48 +203,56 @@ class EndServing extends Task {
     }
 
     exit() {
+        this.owner.currentCustomer = null;
         super.exit()
-
     }
 }
 
 class ReplaceKeg extends Task {
-    constructor(tap, mode) {
+    constructor(tap) {
         super("replaceKeg");
-        // mode suggests REPLACE: with one of same kind,
-        // or EXCHANGE: with a random kind
+        
         this.tap = tap;
-        this.mode = mode;
-
+        this.newKeg = null;
         this.time = 30; // it takes 30 seconds to replace a keg
     }
 
-    perform() {
-        super.perform();
+    enter() {
+        // decide whether to replace the keg with one of same type, or a different type.
 
-        
+        // If anyone is waiting for this tap, check if there is a similar, non-blocked, that they can be moved to.
+        // - if not, then we need to replace with same kind.
+        // - otherwise, select a random type : however, this might cause customers in queue to have to change their order ... 
+
+        // For now, always do the same type ...
+
+        // Fetch keg from storage
+        this.newKeg = this.owner.bar.storage.getKeg( this.tap.keg.beerType );
+
+        // Put a sign on the tap, announcing the new kind of beer
+        this.tap.nextBeerType = this.newKeg.beerType;
+
+        Logger.log("Bartender "+this.owner.name+" is replacing keg for tap: " + this.tap.id);
+        super.enter();
+    }
+
+    exit() {
+        // connect the new keg to this tap
+        this.tap.keg = this.newKeg;
+        Logger.log("Bartender "+this.owner.name+" has replaced keg for tap "+this.tap.id+" with a new keg of '" + this.tap.keg.beerType.name +"'");
+
+        // If this tap is no longer mine - I have tried to release it before, so release it again
+        if( this.owner.currentTap !== this.tap ) {
+            Logger.log("Tap "+this.tap.id+" has been released before, so re-release it");
+            this.tap.release();
+        }
+
+        // Remove the sign announcing the next type
+        this.tap.nextBeerType = null;
+
+        super.exit();
     }
 }
 
-// TODO: Make entry and exit methods for tasks, rather than two tasks
-class DoneReplacingKeg extends Task {
-    constructor(tap,mode) {
-        super("doneReplacingKeg");
-        this.tap = tap;
-        this.mode = mode;
-        this.time = 0; 
-    }
-
-    perform() {
-        super.perform();
-
-        // find keg from storage
-        const keg = this.owner.bar.storage.getKeg(this.tap.keg.beerType);
-        console.log("Replaced keg with ", keg);
-        this.tap.keg = keg;
-        this.tap.replaceKeg();
-
-    }
-}
 
 export {Waiting, StartServing, ReserveTap, PourBeer, ReleaseTap, ReceivePayment, EndServing};

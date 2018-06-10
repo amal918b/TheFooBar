@@ -1,5 +1,5 @@
 //====================
-const version = "0.04";
+const version = "0.05";
 //====================
 
 import {Bar} from './bar.js';
@@ -12,7 +12,6 @@ import {Beer} from './beer.js';
 
 
 /* TODO:
-    * add replacement of empty kegs
     * add breaks for bartenders
 */
 
@@ -165,18 +164,20 @@ function createBar(name) {
     // - create a list of all beertypes - duplicate and concatenate it to itself - select random indexes and remove
     const possibilities = BeerTypes.all().concat(BeerTypes.all());
     for( let i=0; i < numberOfTaps; i++ ) {
-        const index = Math.floor(Math.random()*possibilities.length);
-        const beerType = possibilities[i];
+        let keg = null;
+        while(keg === null) {        
+            const index = Math.floor(Math.random()*possibilities.length);
+            const beerType = possibilities[index];
 
-        // get a keg of this type from storage
-        const keg = bar.storage.getKeg(beerType);
+            // get a keg of this type from storage    
+            keg = bar.storage.getKeg(beerType);
 
+            // remove beerType from possibilities
+            possibilities.splice(index,1);
+        }
         // create a tap, and add it to the bar
         const tap = new Tap(keg);
         bar.addTap(tap);
-
-        // remove beerType from possibilities
-        possibilities.splice(index,1);
     }
 
     // * create bartenders
@@ -190,10 +191,14 @@ function createBar(name) {
   //  bar.addBartender("Sarah");
 
     console.log("Created Bar '"+bar.name+"' - ready for customers ...");
+    bar.open();
 
     // return the bar
     return bar;
 }
+
+
+// TODO: Move these functions to CustomerGenerator class ...
 
 // create a customer with an order for some random beers
 function createCustomer() {
@@ -212,6 +217,10 @@ function createCustomer() {
 
 function createRandomBeer() {
     // ask bar for beertypes
+
+    // TEST: Always require beer-type 0!
+//    const beer = new Beer( bar.taps[0].keg.beerType);
+
     const beer = new Beer( bar.getRandomAvailableBeerType() );
     return beer;
 }

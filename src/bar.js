@@ -46,6 +46,13 @@ class Bar {
         Logger.log("Added customer " + customer.id + " to queue");
     }
 
+    open() {
+        
+        // Log configuration
+        Logger.log("Configuration - bartenders: " + this.bartenders.map( (bartender,i) => i + ": " + bartender.name ).join(", "));
+        Logger.log("Configuration - taps: " + this.taps.map( tap => tap.id + ": " + tap.keg.beerType ).join(", "));
+    }
+
     serveNextCustomer( bartender ) {
         // move customer out of queue
         const customer = this.queue.shift();
@@ -91,9 +98,19 @@ class Bar {
         return tap.keg.beerType;
     }
 
-    waitForAvailableTap( beerType, callback ) {
+    waitForAvailableTap( beer , callback ) {
         // find taps for this kind of beer
-        const taps = this.taps.filter( tap => tap.keg.beerType.name == beerType );
+        let taps = this.taps.filter( tap => !tap.isBlocked && tap.keg.beerType === beer.beerType );
+
+        // If there are no available taps for this kind of beer - first check if the blocked ones will get it
+        if( taps.length === 0 ) {
+            taps = this.taps.filter( tap => tap.isBlocked && tap.nextBeerType === beer.beerType );
+            
+            if( taps.length === 0 ) {
+                // if the requested type is still not available, and wont be, ask the customer to modify their order
+                return false;
+            }
+        }
 
         // if one is available now, use that directly
         let tap = null;
@@ -107,15 +124,18 @@ class Bar {
         
         // if no available tap was found, wait for a random one
         if( tap === null ) {
-            // sort the list of taps by shortest waitlist
-            taps.sort( (a,b) => a.waitList.length - b.waitList.length );
-
-            Logger.log("No tap available for "+beerType+" - waiting for tap " + taps[0].id);
-
-            taps[0].addToWaitList( callback );
+            if( taps.length > 0 ) {
+                // sort the list of taps by shortest waitlist
+                taps.sort( (a,b) => a.waitList.length - b.waitList.length );
+                Logger.log("No tap available for "+beer.beerType+" - waiting for tap " + taps[0].id);
+                taps[0].addToWaitList( callback );
+            } else {
+                // Should never happen
+                console.error("!!! DISASTER - tap for "+beerType+" can't be found!");
+            }
         } 
 
-        return taps;
+        return true;
     }
 
     // Returns JSON-data about everything in the bar
@@ -157,20 +177,22 @@ class Bar {
         // bartenders
         data.bartenders = this.bartenders.map( bt => {
             const bart = {name: bt.name};
-            switch(bt.currentState) {
-                case bt.state.READY: bart.status = "READY";
-                    break;
-                case bt.state.SERVING: bart.status = "SERVING_CUSTOMER";
-                    break;
-                case bt.state.WAITING: bart.status = "WAITING_FOR_TAP";
-                    break;
-                case bt.state.PREPARING: bart.status = "EXCHANGING_KEG";
-                    break;
-                case bt.state.BREAK: bart.status = "BREAK";
-                    break;
-            }
-            // TODO: add Off duty!
 
+            // Status - Old style: READY or WORKING
+            if( bt.currentTask.name === "waiting" ) {
+                bart.status = "READY";
+            } else {
+                bart.status = "WORKING";
+            }
+
+            // Added detailed status = task.name
+            bart.statusDetail = bt.currentTask.name;
+
+            // Current tap being used
+            bart.usingTap = bt.currentTap ? bt.currentTap.id : null; 
+
+            // Current customer
+            bart.servingCustomer = bt.currentCustomer ? bt.currentCustomer.id : null;
             return bart;
         });
 

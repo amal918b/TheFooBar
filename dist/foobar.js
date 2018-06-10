@@ -14,13 +14,59 @@
        }
 
        drain( amount ) {
+           // TODO: Dynamically/gradually drain the keg, using the pouringspeed for the beertype - let calls to level, calculate the current level, as we are draining away ...
            this.level -= amount;
+           
            // TODO: Handle empty keg
-           if( this.level <= 0 ) {
-               console.error("!!!KEG EMPTY!!!", this);
+           if( this.level < 0 ) {
+               console.error("!!! DRAINING FROM EMPTY KEG!!!", this);
            }
        }
    }
+
+   /* logger is used for debugging - everything logs to here, and filters control how the log is shown/stored 
+
+
+   */
+   class _Logger {
+       constructor() {
+           this.outputToConsole = false;
+           this.store = [];
+       }
+
+       show( outputToConsole ) {
+           this.outputToConsole = outputToConsole;
+       }
+
+       log(message) {
+           message = message.replace("\n", "\n                    " );
+
+           const time = new Date();
+           const timestring = "" + time.getFullYear() + "-" 
+                               + String(time.getMonth()).padStart(2,0) + "-"
+                               + String(time.getDate()).padStart(2,0) + " "
+                               + String(time.getHours()).padStart(2,0) + ":"
+                               + String(time.getMinutes()).padStart(2,0) + ":"
+                               + String(time.getSeconds()).padStart(2,0);
+
+           const msg = timestring + " " + message;
+
+           // Store messages
+           this.store.push(msg);
+
+           // Show log to console, if enabled
+           if(this.outputToConsole) {
+               console.log(msg);
+           }
+
+           // TODO: if store gets too large, start dumping old messages ...
+       }
+
+
+
+   }
+
+   const Logger = new _Logger();
 
    // There can be only one storage-object in the system - it contains a number of kegs with various beertypes in them
    class Storage {
@@ -44,15 +90,22 @@
        getKeg( beerType ) {
            let keg = null;
 
+           Logger.log("Get keg with '"+beerType+"' from storage");
+
            // find the count for this type 
            let count = this.storage.get(beerType) || (this.autofill ? 10 : 0);
 
-           if( count > 1 ) {
+           if( count > 0 ) {
                // create new keg
                keg = new Keg(beerType, 2500);
                count--;
+               if( count === 0 && this.autofill ) {
+                   count = 10;
+               } 
                this.storage.set(beerType, count);
            }
+
+
 
            return keg;
        }
@@ -125,50 +178,6 @@
 
    };
 
-   /* logger is used for debugging - everything logs to here, and filters control how the log is shown/stored 
-
-
-   */
-   class _Logger {
-       constructor() {
-           this.outputToConsole = false;
-           this.store = [];
-       }
-
-       show( outputToConsole ) {
-           this.outputToConsole = outputToConsole;
-       }
-
-       log(message) {
-           message = message.replace("\n", "\n                    " );
-
-           const time = new Date();
-           const timestring = "" + time.getFullYear() + "-" 
-                               + String(time.getMonth()).padStart(2,0) + "-"
-                               + String(time.getDate()).padStart(2,0) + " "
-                               + String(time.getHours()).padStart(2,0) + ":"
-                               + String(time.getMinutes()).padStart(2,0) + ":"
-                               + String(time.getSeconds()).padStart(2,0);
-
-           const msg = timestring + " " + message;
-
-           // Store messages
-           this.store.push(msg);
-
-           // Show log to console, if enabled
-           if(this.outputToConsole) {
-               console.log(msg);
-           }
-
-           // TODO: if store gets too large, start dumping old messages ...
-       }
-
-
-
-   }
-
-   const Logger = new _Logger();
-
    class Task {
        constructor(name) {
            this.name = name;
@@ -176,12 +185,31 @@
            this.time = 0; // the time for this task to complete - set by extending classes
        }
 
-       perform() {
-           // do this task ... 
-          // console.log("-task: "+this.name+" will take %d seconds", this.time)
-
-           // and callback on the owner to do the next task, when done
+       // called by work, calls work again after 
+       enter( parameter ) {
            setTimeout( this.owner.work.bind(this.owner), this.time*1000 );
+       }
+
+       exit() {
+   //        console.log("exit task ", this);
+       }
+
+       toString() {
+           return this.name;
+       }
+   }
+
+   class Waiting extends Task {
+       constructor() {
+           super("waiting");
+       }
+
+       enter() {
+           Logger.log("Bartender "+this.owner.name+" is waiting for a new customer");
+       }
+
+       exit() {
+           Logger.log("Bartender "+this.owner.name+" is done waiting.");
        }
    }
 
@@ -189,88 +217,146 @@
        constructor(customer) {
            super("startServing");
            this.customer = customer;
-           this.time = 2; // Taking the order takes 10 seconds
-
-           // TODO: customer.state should be modified instead of this
-           customer.beingServed = true;
+           this.time = 2; // Taking the order takes 10 seconds - or only two?
        }
 
-       perform() { 
-           super.perform();
+       enter() {
+           this.owner.currentCustomer = this.customer;
+           // TODO: customer.state should be modified instead of this
+           this.customer.beingServed = true;
+           // TODO: log the current time in the customer
 
            const ordertext = this.customer.order.beers.map( b => "'"+b.beerType.name+"'" ).join(', ');
-
            Logger.log("Bartender "+this.owner.name+" starts serving customer " + this.customer.id + "\nwith order [" + ordertext + "]");
-           // TODO: log the current time in the customer
-   //        this.customer.
-           // log list of beers in this customer's order
-       /*    this.customer.order.beers.forEach( beer => {
-               console.log("--" + beer);
-           })
-   */
-           this.owner.currentState = this.owner.state.SERVING;
+
+           super.enter();
        }
+
+       exit() {
+           // Log bartenders tasklist
+           const tasklist = this.owner.tasks.join(', ');
+           Logger.log("Bartender "+this.owner.name+"' plan for serving customer "+this.customer.id+" is: ["+tasklist+"]");
+
+           super.exit();
+       }    
    }
 
-   class ServeBeer extends Task {
+   class ReserveTap extends Task {
        constructor(beer) {
-           super("serveBeer");
+           super("reserveTap");
            this.beer = beer;
        }
 
-       perform() {
+       enter() {
            Logger.log("Bartender "+this.owner.name+" wants to pour '" + this.beer + "'");
            // Find available tap - then pourbeer (that is expected to be next task in queue)
-           this.owner.bar.waitForAvailableTap( this.beer, this.owner.work.bind(this.owner) );
+           if( ! this.owner.bar.waitForAvailableTap( this.beer, this.owner.work.bind(this.owner) ) ) {
+               // If no tap can be reserved or found - modify the customers order to something else    
+               console.warn("! can't fulfill customer #" + this.owner.currentCustomer.id +" order - replacing beertype !");
+
+               const previousType = this.beer.beerType;
+
+               // get another beer-type
+               this.beer.beerType = this.owner.bar.taps.filter( tap => tap.isAvailable )[0].keg.beerType;
+
+               // find following pourbeer-tasks
+               let t=0;
+               while( this.owner.tasks[t].name == "pourBeer" ) {
+                   this.owner.tasks[t].beer.beerType = this.beer.beerType;
+                   t++;
+               }
+
+               Logger.log("'" + previousType + "' is sold out, so replacing with: '"+this.beer.beerType+"'");
+               this.owner.bar.waitForAvailableTap( this.beer, this.owner.work.bind(this.owner) ); 
+           }
+           
+           
+
+
+           // don't call super - the tap handles the callback
+       }
+
+       exit(tap) {
+           // exit should be called by the tap, or whatever calls us when wap is ready
+           Logger.log("Bartender "+this.owner.name+" has reserved tap '" + tap.id + "'");
+           this.owner.reserveTap(tap);
+           
+           super.exit();
+       }
+
+       toString() {
+           return super.toString() + " ("+this.beer.beerType.name+")";
+       }
+   }
+
+   class ReleaseTap extends Task {
+       constructor() {
+           super("releaseTap");
+           this.time = 1;
+       }
+
+       enter() {
+           this.tap = this.owner.currentTap;
+
+           // FIX: Don't release a tap, if you have just emptied the keg!
+           this.owner.releaseTap();
+
+           super.enter();
+       }
+
+       exit() {
+           Logger.log("Bartender "+this.owner.name+" has released tap '" + this.tap.id + "'");
+           super.exit();
        }
    }
 
    class PourBeer extends Task {
-       constructor(beer) {
+       constructor(beer) { 
            super("pourBeer");
+
+           // We need the beer for the size, and pouringSpeed
            this.beer = beer;
 
            this.time = beer.size / beer.beerType.pouringSpeed;
        }
 
-       perform( tap ) {
-        //   console.log("Pour beer from tap ", tap);
-           Logger.log("Bartender "+this.owner.name+" pours '" + this.beer + "' from tap " + tap.id);
+       enter() {
+           this.tap = this.owner.currentTap;
+           this.tap.drain( this.beer.size );
+           Logger.log("Bartender "+this.owner.name+" pours '" + this.beer + "' from tap " + this.tap.id);
+           super.enter();
+       }
 
-           // reserve this tap
-           tap.startUsing();
-           this.owner.tap = tap;
+       exit() {
+           Logger.log("Bartender "+this.owner.name+" is done pouring '" + this.beer + "' from tap " + this.tap.id);
 
-           tap.drain( this.beer.size );
+           // Keg could be empty now - better check
+           if( this.tap.keg.level <= 0 ) {
+               Logger.log("Keg is empty.");
 
-           // TODO: drain beer from keg
-           super.perform();
+               const replaceTask = new ReplaceKeg(this.tap);
 
+               // if my customer requires more beer of this kind - replace the keg now!
+               if( this.owner.tasks.filter( task => task.name === "pourBeer" && task.beer.beerType === this.tap.keg.beerType).length > 0 ) {
+                   Logger.log("My customer wants more - so better replace it now!");
+                   this.owner.insertTask(replaceTask);
+               } else {
+               // otherwise, replace the keg when done serving
+                   Logger.log("I'll replace it when done with this customer");
+
+                   // Move the releaseTap task to after replacing the keg!
+
+                   this.owner.addTask(replaceTask);
+               }
+           }
+
+           super.exit();
        }
    }
 
-   class DonePouringBeer extends Task {
-       constructor(beer) {
-           super("donePouringBeer");
-           this.beer = beer;
-           this.time = 1;
-       }
-
-       perform( ) {
-           // free this tap
-           const tap = this.owner.tap;
-           Logger.log("Bartender "+this.owner.name+" is done pouring '" + this.beer + "' from tap " + tap.id);
-
-           this.owner.tap = null;
-           tap.endUsing();
-   //        this.owner.tap = null
-           
-           super.perform();
-       }
-   }
 
    class ReceivePayment extends Task {
-       constructor() {
+       constructor(order) {
            super("receivePayment");
            this.time = 5;
        }
@@ -281,20 +367,68 @@
            super("endServing");
            this.customer = customer;
            this.time = 0;
-
-        
        }
 
-       perform() { 
-           super.perform();
-
+       enter() {
            this.customer.beingServed = false;
 
            // remove customer from beingServed list
+           // TODO: Should be done by the bar!
            const index = this.owner.bar.beingServed.findIndex(cust => cust.id === this.customer.id);
            this.owner.bar.beingServed.splice(index,1);
 
-           this.owner.currentState = this.owner.state.READY;
+           super.enter();
+       }
+
+       exit() {
+           this.owner.currentCustomer = null;
+           super.exit();
+       }
+   }
+
+   class ReplaceKeg extends Task {
+       constructor(tap) {
+           super("replaceKeg");
+           
+           this.tap = tap;
+           this.newKeg = null;
+           this.time = 30; // it takes 30 seconds to replace a keg
+       }
+
+       enter() {
+           // decide whether to replace the keg with one of same type, or a different type.
+
+           // If anyone is waiting for this tap, check if there is a similar, non-blocked, that they can be moved to.
+           // - if not, then we need to replace with same kind.
+           // - otherwise, select a random type : however, this might cause customers in queue to have to change their order ... 
+
+           // For now, always do the same type ...
+
+           // Fetch keg from storage
+           this.newKeg = this.owner.bar.storage.getKeg( this.tap.keg.beerType );
+
+           // Put a sign on the tap, announcing the new kind of beer
+           this.tap.nextBeerType = this.newKeg.beerType;
+
+           Logger.log("Bartender "+this.owner.name+" is replacing keg for tap: " + this.tap.id);
+           super.enter();
+       }
+
+       exit() {
+           // connect the new keg to this tap
+           this.tap.keg = this.newKeg;
+           Logger.log("Bartender "+this.owner.name+" has replaced keg for tap "+this.tap.id+" with a new keg of '" + this.tap.keg.beerType.name +"'");
+
+           // If this tap is no longer mine - I have tried to release it before, so release it again
+           if( this.owner.currentTap !== this.tap ) {
+               Logger.log("Tap "+this.tap.id+" has been released before, so re-release it");
+               this.tap.release();
+           }
+
+           // Remove the sign announcing the next type
+           this.tap.nextBeerType = null;
+
+           super.exit();
        }
    }
 
@@ -306,45 +440,98 @@
 
            this.tasks = [];
 
+           // TODO: Remove these - just look at the currentTask
            this.state = {
                READY: Symbol("State.READY"),
                SERVING: Symbol("State.SERVING"),
+               WAITING: Symbol("State.WAITING"),  // Waiting for a tap to become available
                PREPARING: Symbol("State.PREPARING"), // When the bartender changes a keg between customers ... 
                BREAK: Symbol("State.BREAK"),
-               OFF: Symbol("State.BREAK")
+               OFF: Symbol("State.OFF")
            };
 
-           this.tap = null;
+           // The currently reserved tap - if any
+           this.currentTap = null;
+           
+           this.currentCustomer = null;
 
-           this.currentState = this.state.READY;
+           // Add a Waiting task to this bartender, and call it immediately
+           this.currentTask = null;
+           this.addTask( new Waiting() );
+           this.work();
        }
 
+       get isWorking() {
+           // returns false if this.currentTask is of type waiting
+           // TODO: Check for type rather than name
+           return !(this.currentTask === null || this.currentTask.name == "waiting");
+       } 
+
+       // Adds a task to the end of the tasklist
        addTask( task ) {
            this.tasks.push(task);
            task.owner = this;
        }
 
+       // Inserts a task in the beginning of the tasklist (i.e. as the next task to run)
+       insertTask( task ) {
+           this.tasks.unshift(task);
+           task.owner = this;
+       }
+
+       /* work does the next bit of work ...
+          That usually means exiting the currentTask (that has probably taken some time)
+          And entering the next task.
+
+          However - if no next tasks exists - go into waiting-task until next work
+       */
        work( parameter ) {
+           // if there is a current task ...
+           // - call exit on that
+           // - find next task - set it to current - call enter with parameter
+
+           if( this.currentTask ) {
+               this.currentTask.exit( parameter );
+           }
+
+           // If there are no more tasks - create a new waiting-task
+           if( this.tasks.length === 0 ) {
+               this.addTask( new Waiting() );
+           }
+
+           // Find next task
+           const task = this.tasks.shift();
+
+           // Change to the next task
+           this.currentTask = task;
            
+           // bartender enters task - task calls work() again when ready to exit
+           task.enter( parameter );
+           
+           // TODO: Re-implement breaks for bartenders at a later stage ...
+           /*
            if(this.tasks.length > 0) {
                this.isWorking = true;
 
                const task = this.tasks.shift();
-               //console.log("Bartender " + this.name + " starts task " + task.name + ", with parameter", parameter);
-               task.perform( parameter );
+               console.log("Bartender " + this.name + " starts task " + task.name + ", with parameter", parameter);
+   //            task.perform( parameter );
+               task.enter(parameter);
            } else {
                this.isWorking = false;
-               //console.log("Bartender " + this.name + " has no more work");// ... will go for a break in 5 minutes");
+               console.log("Bartender " + this.name + " has no more work");// ... will go for a break in 5 minutes");
                if( this.bar.queue.length === 0 ) {
                    //console.log("will go for a break in 5 minutes");   
                    // TODO: start break in 5 minutes, if no work shows up
                    this.requestBreak(5);
                }
-               
            }
+           */
        }
 
+       // TODO: Re-implement breaks for bartenders at a later stage ...
        requestBreak( inMinutes ) {
+           console.warn("Bartender breaks are not implemented!");
            setTimeout( function() {
                // request the break here!
                //console.log("Request break for", this);
@@ -360,24 +547,48 @@
            }.bind(this), inMinutes*1000);
        }
 
-
-       // convenience functions for adding tasks
-       startServing( customer ) {
+       serveCustomer( customer ) {
+           // create all the tasks for serving this customer
+           // 1. StartServing
            this.addTask( new StartServing(customer) );
+
+           let lastBeerType = null;
+           // handle each beer:
+           for( let beer of customer.order.beers ) {
+               // normal flow is:
+               // a. ReserveTap
+               // b. PourBeer
+               // c. ReleaseTap
+
+               // - but the bartender can pour several beers with the same reserved tap
+               // so only release and reserve when it is a new type
+               if( beer.beerType !== lastBeerType ) {
+                   // release tap, if lastBeer wasn't null
+                   if( lastBeerType !== null ) {
+                       this.addTask( new ReleaseTap() ); // remembers the current reserved tap
+                   }
+                   lastBeerType = beer.beerType;
+                   this.addTask( new ReserveTap(beer) );
+               }
+               this.addTask( new PourBeer(beer) );
+
+           }
+           // Release tap for the final type of beer
+           this.addTask( new ReleaseTap() );
+           this.addTask( new ReceivePayment(customer.order) );
+           this.addTask( new EndServing(customer) );
+
+           // then don't do anything before work() is being called
        }
 
-       serveBeer( beer ) {
-           this.addTask( new ServeBeer(beer) );
-           this.addTask( new PourBeer(beer) );
-           this.addTask( new DonePouringBeer(beer) );
+       reserveTap(tap) {
+           this.currentTap = tap;
+           tap.reserve( this );
        }
-       
-       receivePayment( customer ) {
-           this.addTask( new ReceivePayment(customer));
-       }
-       
-       endServing( customer ) {
-           this.addTask( new EndServing(customer) );
+
+       releaseTap() {
+           this.currentTap.release(this);
+           this.currentTap = null;
        }
 
    }
@@ -412,6 +623,7 @@
 
        addTap( tap ) {
            tap.id = this.taps.length;
+           tap.bar = this;
            this.taps.push(tap);
        }
 
@@ -423,31 +635,26 @@
            Logger.log("Added customer " + customer.id + " to queue");
        }
 
-       serveNextCustomer( bartender ) {
-           const customer = this.queue.shift();
+       open() {
+           
+           // Log configuration
+           Logger.log("Configuration - bartenders: " + this.bartenders.map( (bartender,i) => i + ": " + bartender.name ).join(", "));
+           Logger.log("Configuration - taps: " + this.taps.map( tap => tap.id + ": " + tap.keg.beerType ).join(", "));
+       }
 
+       serveNextCustomer( bartender ) {
+           // move customer out of queue
+           const customer = this.queue.shift();
+           // - to beingServed-list
            this.beingServed.push(customer);
            
-           bartender.startServing( customer );
+           // and start serving the customer
+           bartender.serveCustomer(customer);
 
-           // run through the order of this customer
-
-           // add pouring of each beed to the tasks of the bartender
-
-           // finally add payment-job - when that is done, bartender releases the customer, and serve the next one
-           const order = customer.order;
-           for( let beer of order.beers ) {
-   //            console.log("order contains: ", beer);
-               // serve this beer
-               bartender.serveBeer( beer ); // doesn't serve it right away, but adds it to a job-list
-           }
-           bartender.receivePayment( customer );
-           bartender.endServing( customer );
-
+           // then get to work
            if(!bartender.isWorking) {
                bartender.work();
            }
-
        }
 
        // The ticker runs every N seconds, looks for waiting customers and available bartenders, and
@@ -466,7 +673,7 @@
 
        // returns a random available bartender, if any - else null
        getAvailableBartender() {
-           const bartenders = this.bartenders.filter( bartender => bartender.currentState === bartender.state.READY );
+           const bartenders = this.bartenders.filter( bartender => !bartender.isWorking );
 
            if( bartenders.length > 0 ) {
                return bartenders[Math.floor(Math.random()*bartenders.length)];
@@ -480,9 +687,19 @@
            return tap.keg.beerType;
        }
 
-       waitForAvailableTap( beerType, callback ) {
+       waitForAvailableTap( beer , callback ) {
            // find taps for this kind of beer
-           const taps = this.taps.filter( tap => tap.keg.beerType.name == beerType );
+           let taps = this.taps.filter( tap => !tap.isBlocked && tap.keg.beerType === beer.beerType );
+
+           // If there are no available taps for this kind of beer - first check if the blocked ones will get it
+           if( taps.length === 0 ) {
+               taps = this.taps.filter( tap => tap.isBlocked && tap.nextBeerType === beer.beerType );
+               
+               if( taps.length === 0 ) {
+                   // if the requested type is still not available, and wont be, ask the customer to modify their order
+                   return false;
+               }
+           }
 
            // if one is available now, use that directly
            let tap = null;
@@ -496,16 +713,18 @@
            
            // if no available tap was found, wait for a random one
            if( tap === null ) {
-               // sort the list of taps by shortest waitlist
-               taps.sort( (a,b) => a.waitList.length - b.waitList.length );
-
-               Logger.log("No tap available for "+beerType+" - waiting for tap " + taps[0].id);
-               // console.log("No tap available for "+beerType.toString()+" beer - waiting for one of: %o", taps);
-
-               taps[0].addToWaitList( callback );
+               if( taps.length > 0 ) {
+                   // sort the list of taps by shortest waitlist
+                   taps.sort( (a,b) => a.waitList.length - b.waitList.length );
+                   Logger.log("No tap available for "+beer.beerType+" - waiting for tap " + taps[0].id);
+                   taps[0].addToWaitList( callback );
+               } else {
+                   // Should never happen
+                   console.error("!!! DISASTER - tap for "+beerType+" can't be found!");
+               }
            } 
 
-           return taps;
+           return true;
        }
 
        // Returns JSON-data about everything in the bar
@@ -547,17 +766,22 @@
            // bartenders
            data.bartenders = this.bartenders.map( bt => {
                const bart = {name: bt.name};
-               switch(bt.currentState) {
-                   case bt.state.READY: bart.status = "READY";
-                       break;
-                   case bt.state.SERVING:
-                   case bt.state.PREPARING: bart.status = "WORKING";
-                       break;
-                   case bt.state.BREAK: bart.status = "BREAK";
-                       break;
-               }
-               // TODO: add Off duty!
 
+               // Status - Old style: READY or WORKING
+               if( bt.currentTask.name === "waiting" ) {
+                   bart.status = "READY";
+               } else {
+                   bart.status = "WORKING";
+               }
+
+               // Added detailed status = task.name
+               bart.statusDetail = bt.currentTask.name;
+
+               // Current tap being used
+               bart.usingTap = bt.currentTap ? bt.currentTap.id : null; 
+
+               // Current customer
+               bart.servingCustomer = bt.currentCustomer ? bt.currentCustomer.id : null;
                return bart;
            });
 
@@ -613,35 +837,49 @@
    // A tap is connected directly to a keg
    class Tap {
        constructor( keg ) {
+           this.bar = null;
            this.keg = keg;
            this.waitList = [];
-           this.isAvailable = true;
            this.id = -1; // is set to the index when reading the list of taps
-
-           // status: in use - vs empty - begge kan være unavailable
        }
 
        addToWaitList( callback ) {
            this.waitList.push( callback );
        }
 
-       startUsing() {
-           this.isAvailable = false;
-           Logger.log("Tap " + this.id + " is in use");
+       get isBlocked() {
+           return this.keg == null || this.keg.level <= 0;
+       } 
+
+       get isAvailable() {
+           return this.reservedBy == null;
+       } 
+
+       get isEmpty() {
+           return this.keg.level <= 0;
+       }
+
+       reserve( bartender ) {
+           this.reservedBy = bartender;
+       }
+
+       release() {
+           // only release if not blocked!
+           if( !this.isBlocked ) {    
+               this.reservedBy = null;
+               
+               // Don't message
+               // If someone is waiting for it - call them
+               const callback = this.waitList.shift();
+               if( callback ) {
+                   Logger.log("Tap "+this.id+" is free, informing next on waitlist: ", callback);
+                   callback( this );
+               }
+           }
        }
 
        drain( amount ) {
            this.keg.drain( amount );
-       }
-
-       endUsing() {
-           Logger.log("Tap " + this.id + " is available");
-           this.isAvailable = true;
-           const callback = this.waitList.shift();
-           if( callback ) {
-           //    console.log("Tap is free, callback with ", this);
-               callback( this );
-           }
        }
 
    }
@@ -701,11 +939,10 @@
    }
 
    //====================
-   const version = "0.04";
+   const version = "0.05";
 
 
    /* TODO:
-       * add replacement of empty kegs
        * add breaks for bartenders
    */
 
@@ -858,18 +1095,20 @@
        // - create a list of all beertypes - duplicate and concatenate it to itself - select random indexes and remove
        const possibilities = BeerTypes.all().concat(BeerTypes.all());
        for( let i=0; i < numberOfTaps; i++ ) {
-           const index = Math.floor(Math.random()*possibilities.length);
-           const beerType = possibilities[i];
+           let keg = null;
+           while(keg === null) {        
+               const index = Math.floor(Math.random()*possibilities.length);
+               const beerType = possibilities[index];
 
-           // get a keg of this type from storage
-           const keg = bar.storage.getKeg(beerType);
+               // get a keg of this type from storage    
+               keg = bar.storage.getKeg(beerType);
 
+               // remove beerType from possibilities
+               possibilities.splice(index,1);
+           }
            // create a tap, and add it to the bar
            const tap = new Tap(keg);
            bar.addTap(tap);
-
-           // remove beerType from possibilities
-           possibilities.splice(index,1);
        }
 
        // * create bartenders
@@ -883,10 +1122,14 @@
      //  bar.addBartender("Sarah");
 
        console.log("Created Bar '"+bar.name+"' - ready for customers ...");
+       bar.open();
 
        // return the bar
        return bar;
    }
+
+
+   // TODO: Move these functions to CustomerGenerator class ...
 
    // create a customer with an order for some random beers
    function createCustomer() {
@@ -905,6 +1148,10 @@
 
    function createRandomBeer() {
        // ask bar for beertypes
+
+       // TEST: Always require beer-type 0!
+   //    const beer = new Beer( bar.taps[0].keg.beerType);
+
        const beer = new Beer( bar.getRandomAvailableBeerType() );
        return beer;
    }

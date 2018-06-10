@@ -11,10 +11,12 @@ class Keg {
     }
 
     drain( amount ) {
+        // TODO: Dynamically/gradually drain the keg, using the pouringspeed for the beertype - let calls to level, calculate the current level, as we are draining away ...
         this.level -= amount;
+        
         // TODO: Handle empty keg
-        if( this.level <= 0 ) {
-            console.error("!!!KEG EMPTY!!!", this);
+        if( this.level < 0 ) {
+            console.error("!!! DRAINING FROM EMPTY KEG!!!", this);
         }
     }
 }
