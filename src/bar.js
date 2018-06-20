@@ -1,6 +1,8 @@
 import {Storage} from './storage.js';
 import {BeerType,BeerTypes} from './beertype.js';
+import {Tap} from './tap.js';
 import {Bartender} from './bartender.js';
+
 
 import {Logger} from './logger.js';
 
@@ -19,11 +21,70 @@ class Bar {
         // Initialize customer-count
         this.nextCustomerID = 0;
 
-        // start ticker
-        setInterval(this.tick.bind(this), 1000);
-
         // Remember logger for external access
         this.Logger = Logger;
+
+        // configuration
+        this.configuration = null;
+        this.onConfiguration = null;
+    }
+
+    loadConfiguration( url ) {
+        fetch( url )
+        .then( response => response.json() )
+        .then( data => this.setConfiguration(data) );
+    }
+
+    setConfiguration(config) {
+        // beertypes
+        config.beertypes.forEach(info => {
+            const beerType = new BeerType(info);
+        })
+
+        // storage
+        this.storage.setConfiguration( config.storage );
+
+        // taps 
+        if( config.taps.initial.random ) {
+            // "count": 7,
+            const numberOfTaps = config.taps.initial.count || 7;
+            // "maxOfEachType": 2
+            const maxOfEachType = config.taps.initial.maxOfEachType;
+        
+            // TODO: If numberOfTabs < beertypes*2 Give an error!
+            // create array of possibilities - each beertype, the number of max times
+            let possibilities = BeerTypes.all();
+            for( let n=1; n < maxOfEachType; n++ ) {
+                possibilities = possibilities.concat(BeerTypes.all());
+            }
+            // Create the required number of taps (and connect them to kegs from the storage)
+            for( let i=0; i < numberOfTaps; i++ ) {
+                let keg = null;
+                while(keg === null) { // If for some reason the storage is out of this type of beer, find another keg!
+                    const index = Math.floor(Math.random()*possibilities.length);
+                    const beerType = possibilities[index];
+        
+                    // get a keg of this type from storage    
+                    keg = this.storage.getKeg(beerType);
+        
+                    // remove beerType from possibilities
+                    possibilities.splice(index,1);
+                }
+                // create a tap, and add it to the bar
+                const tap = new Tap(keg);
+                this.addTap(tap);
+            }
+        } // TODO: Other tap-configurations, e.g. list
+
+        // bartenders
+        config.bartenders.forEach( bartender => this.addBartender( bartender.name ));
+
+         
+        // Store configuration, and callback, if any        
+        this.configuration = config;
+        if( this.onConfiguration ) {
+            this.onConfiguration();
+        }
     }
 
     addBartender(name) {
@@ -46,11 +107,27 @@ class Bar {
         Logger.log("Added customer " + customer.id + " to queue");
     }
 
-    open() {
-        
-        // Log configuration
-        Logger.log("Configuration - bartenders: " + this.bartenders.map( (bartender,i) => i + ": " + bartender.name ).join(", "));
-        Logger.log("Configuration - taps: " + this.taps.map( tap => tap.id + ": " + tap.keg.beerType ).join(", "));
+    whenOpen( callback ) {
+        this._whenOpen = callback;
+    }
+
+    open() {        
+        // if configuration is not loaded yet, make a callback to this function for when it is
+        if( this.configuration == null) {
+            this.onConfiguration = this.open;
+        } else {
+            
+            // Log configuration
+            Logger.log("Configuration - bartenders: " + this.bartenders.map( (bartender,i) => i + ": " + bartender.name ).join(", "));
+            Logger.log("Configuration - taps: " + this.taps.map( tap => tap.id + ": " + tap.keg.beerType ).join(", "));
+            
+            // start ticker
+            setInterval(this.tick.bind(this), 1000);
+            
+            if(this._whenOpen) {
+                this._whenOpen();
+            }
+        }
     }
 
     serveNextCustomer( bartender ) {
@@ -71,7 +148,6 @@ class Bar {
     // The ticker runs every N seconds, looks for waiting customers and available bartenders, and
     // assigns work
     tick() {
-        // console.log("tick");
         // is there any waiting customers
         if( this.queue.length > 0 ) {
             // and any available bartenders?
@@ -93,12 +169,14 @@ class Bar {
         }
     }
 
-    getRandomAvailableBeerType() {
-        const tap = this.taps[Math.floor(Math.random()*this.taps.length)];
-        return tap.keg.beerType;
+    // Returns a list of the beerTypes currently on tap (some might just have been emptied though)
+    getAvailableBeerTypes() {
+        return this.taps.map( tap => tap.keg.beerType );
     }
 
-    waitForAvailableTap( beer , callback ) {
+    // searches for an available tap to serve the beertype indicated, and calls callback with the tap found.
+    // if the tap is ready now, the callback is called immediately, otherwise it is called by the tap, when it is ready
+    waitForAvailableTap( beer, callback ) {
         // find taps for this kind of beer
         let taps = this.taps.filter( tap => !tap.isBlocked && tap.keg.beerType === beer.beerType );
 
@@ -154,6 +232,7 @@ class Bar {
 
         // queue with customers
         data.queue = this.queue.map( cust => {
+            // TODO: Move to customer-class
             const ncust = {};
             ncust.id = cust.id;
             ncust.startTime = cust.queueStart;
@@ -165,6 +244,7 @@ class Bar {
 
         // customers being served
         data.serving = this.beingServed.map(cust => {
+            // TODO: Move to customer-class
             const ncust = {};
             ncust.id = cust.id;
             ncust.startTime = cust.queueStart;
@@ -175,7 +255,9 @@ class Bar {
         });
 
         // bartenders
+        
         data.bartenders = this.bartenders.map( bt => {
+            // TODO: Move to bartender class
             const bart = {name: bt.name};
 
             // Status - Old style: READY or WORKING
@@ -198,6 +280,7 @@ class Bar {
 
         // taps
         data.taps = this.taps.map( tap => {
+            // TODO: Move to tap class
             const t = {};
             // id
             t.id = tap.id;
