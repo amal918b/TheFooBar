@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>FooBar Test</title>
+    <link rel="stylesheet" href="test.css" type="text/css">
+</head>
+<body>
+    <h1>FooBar testpage</h1>
+
+    <div id="dashboard">
+    <div id="left">
+
+        <div id="bartenders">
+            <h2>Bartenders</h2>
+            <template id="bartender">
+                <div id="bartender_">
+                    <p>
+                        Name: <span data-data="name"></span><br>
+                        Status: <span data-data="status"></span><br>
+                        detail: <span data-data="statusDetail"></span><br>
+                        usingTap: <span data-data="usingTap"></span><br>
+                        customer: <span data-data="servingCustomer"></span>
+                    </p>
+                </div>
+            </template>
+        </div>
+
+        <div id="taps">
+            <h2>Taps</h2>
+            <template id="tap">
+                <div id="tap_">
+                    <p>
+                        id: <span data-data="id"></span><br>
+                        beer: <span data-data="beer"></span><br>
+                        inuse: <span data-data="inUse"></span><br>
+                        level: <span data-data="level"></span><br>
+                        capacity: <span data-data="capacity"></span>
+                    </p>
+                </div>
+            </template>
+
+        </div>
+    </div>
+
+    <div id="right">
+        
+            <div id="serving">
+                <h2>Being served:</h2>
+                <ul id="serving_list">
+
+                </ul>
+                <template id="customer">
+                    <li>id: <span data-data="id"></span> - order: <span data-data="order"></span></li>
+                </template>
+            </div>
+        
+            <div id="queue">
+                <h2>Queue:</h2>
+                <ol id="queue_list">
+
+                </ol>
+
+            </div>
+
+            <hr>
+            <div id="storage">
+                <h2>Storage:</h2>
+                <ul id="storage_list">
+
+                </ul>
+                <template id="storage_keg">
+                    <li>'<span data-data="beertype"></span>' : <span data-data="amount"></span> kegs</li>
+                </template>
+            </div>
+    </div>
+</div>
+
+<!-- <script src="http://petlatkea.dk/2018/front/foobar.js"></script> -->
+    <script src="../dist/foobar.js"></script>
+    <!-- <script src="../src/foobar.js" type="module"></script> -->
+    <script src="test.js"></script>
+    
+</body>
+</html>
